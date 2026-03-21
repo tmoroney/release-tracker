@@ -74,14 +74,50 @@ jobs:
 
             snapshots.push(snapshot);
             fs.writeFileSync('$SNAPSHOT_FILE', JSON.stringify(snapshots, null, 2));
+
+            // Generate shields.io endpoint badge JSON files
+            const fmtNum = n => n >= 1000000 ? (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(n);
+            const msPerDay = 86400000;
+
+            // Compute active user estimates
+            let dailyAU, weeklyAU, monthlyAU;
+            if (snapshots.length >= 2) {
+              const prev = snapshots[snapshots.length - 2];
+              const daysBetween = Math.max(1, (new Date(snapshot.timestamp) - new Date(prev.timestamp)) / msPerDay);
+              dailyAU = Math.round((snapshot.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween);
+            } else {
+              // Fallback: fetch publish date from releases
+              const latestRelease = releases.find(r => r.assets && r.assets.some(a => a.name === 'latest.json'));
+              if (latestRelease) {
+                const daysSincePublish = Math.max(1, (Date.now() - new Date(latestRelease.published_at).getTime()) / msPerDay);
+                dailyAU = Math.round(latestJsonDownloads / daysSincePublish);
+              } else {
+                dailyAU = 0;
+              }
+            }
+            weeklyAU = dailyAU * 7;
+            monthlyAU = dailyAU * 30;
+
+            const badges = {
+              'badge-downloads': { schemaVersion: 1, label: 'downloads', message: fmtNum(totalInstallerDownloads), color: '0078d4' },
+              'badge-weekly-users': { schemaVersion: 1, label: 'weekly active users', message: fmtNum(weeklyAU), color: 'f0883e' },
+              'badge-daily-users': { schemaVersion: 1, label: 'daily active users', message: fmtNum(dailyAU), color: 'f0883e' },
+              'badge-monthly-users': { schemaVersion: 1, label: 'monthly active users', message: fmtNum(monthlyAU), color: 'f0883e' },
+            };
+
+            for (const [name, badge] of Object.entries(badges)) {
+              fs.writeFileSync('data/' + name + '.json', JSON.stringify(badge));
+            }
+
             console.log('Snapshot recorded:', JSON.stringify(snapshot, null, 2));
+            console.log('Badges generated:', Object.keys(badges).join(', '));
           " "$RELEASES"
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add data/snapshots.json
+          git add data/
           git diff --cached --quiet && echo "No changes to commit" && exit 0
           git commit -m "snapshot: daily download counts $(date -u +%Y-%m-%d)"
           git push
