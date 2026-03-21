@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-Subs Download Stats</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --windows: #0078d4;
+      --mac-arm: #34c759;
+      --mac-intel: #30d5c8;
+      --linux: #e95420;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      padding: 2rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    a { color: var(--text-muted); text-decoration: none; }
+    a:hover { text-decoration: underline; color: var(--text); }
+
+    .header { text-align: center; margin-bottom: 2.5rem; }
+    .header h1 { font-size: 2rem; margin-bottom: 0.25rem; }
+    .header .total {
+      font-size: 3.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, var(--windows), var(--mac-arm));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .header .subtitle { color: var(--text-muted); font-size: 1rem; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      text-align: center;
+    }
+    .card .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .card .platform { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+    .card .count { font-size: 1.75rem; font-weight: 700; }
+    .card .pct { color: var(--text-muted); font-size: 0.85rem; }
+
+    .card.windows .count { color: var(--windows); }
+    .card.mac-arm .count { color: var(--mac-arm); }
+    .card.mac-intel .count { color: var(--mac-intel); }
+    .card.linux .count { color: var(--linux); }
+
+    .active-users {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 2.5rem;
+      text-align: center;
+    }
+    .active-users h2 { font-size: 1.15rem; margin-bottom: 1rem; color: var(--text-muted); font-weight: 500; }
+    .active-users .au-cards {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    .au-card {
+      min-width: 140px;
+    }
+    .au-card .au-label { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
+    .au-card .au-count { font-size: 2rem; font-weight: 700; color: #f0883e; }
+    .au-card .au-note { color: var(--text-muted); font-size: 0.75rem; margin-top: 0.15rem; }
+    .active-users .au-disclaimer { color: var(--text-muted); font-size: 0.75rem; margin-top: 1rem; font-style: italic; }
+
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .section h2 { font-size: 1.15rem; margin-bottom: 1rem; color: var(--text-muted); font-weight: 500; }
+
+    .chart-container { position: relative; height: 350px; }
+
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td { padding: 0.6rem 0.75rem; text-align: right; white-space: nowrap; }
+    th { color: var(--text-muted); font-weight: 500; border-bottom: 1px solid var(--border); }
+    td { border-bottom: 1px solid var(--border); }
+    th:first-child, td:first-child { text-align: left; }
+    tr:last-child td { border-bottom: none; }
+    .total-col { font-weight: 700; }
+
+    .loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 300px;
+      color: var(--text-muted);
+    }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border);
+      border-top-color: var(--windows);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error {
+      text-align: center;
+      padding: 2rem;
+      color: #f85149;
+    }
+    .error button {
+      margin-top: 1rem;
+      padding: 0.5rem 1.25rem;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .error button:hover { border-color: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Auto-Subs Download Stats</h1>
+  <a href="https://github.com/tmoroney/auto-subs" target="_blank">github.com/tmoroney/auto-subs</a>
+  <div id="total" class="total"></div>
+  <div class="subtitle">total downloads (lifetime)</div>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="active-users" id="active-users" style="display:none"></div>
+
+<div class="section" id="trend-chart-section" style="display:none">
+  <h2>Daily Trends</h2>
+  <div class="chart-container">
+    <canvas id="trend-chart"></canvas>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Downloads per Release</h2>
+  <div class="chart-container">
+    <canvas id="chart"></canvas>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Release Breakdown</h2>
+  <div class="table-wrap">
+    <table id="table"></table>
+  </div>
+</div>
+
+<div class="loading" id="loading">
+  <div class="spinner"></div>
+  Fetching release data...
+</div>
+
+<div class="error" id="error" style="display:none"></div>
+
+<script>
+const REPO = 'tmoroney/auto-subs';
+const EXTENSIONS = ['.pkg', '.deb', '.exe'];
+
+function isInstaller(name) {
+  return EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext));
+}
+
+function classifyPlatform(name) {
+  const n = name.toLowerCase();
+  if (n.endsWith('.exe')) return 'windows';
+  if (n.endsWith('.deb')) return 'linux';
+  if (n.endsWith('.pkg')) {
+    if (n.includes('intel') || n.includes('x86_64') || n.includes('x86-64')) return 'macIntel';
+    return 'macArm';
+  }
+  return 'unknown';
+}
+
+function getActiveUserEstimates(releases, snapshots) {
+  // Find the latest release (first in the array — API returns newest first)
+  let latestJsonCount = 0;
+  let releaseTag = null;
+  let publishedAt = null;
+
+  for (const release of releases) {
+    const latestJson = (release.assets || []).find(a => a.name === 'latest.json');
+    if (!latestJson || !release.published_at) continue;
+    latestJsonCount = latestJson.download_count;
+    releaseTag = release.tag_name;
+    publishedAt = new Date(release.published_at);
+    break;
+  }
+
+  if (!releaseTag) return null;
+
+  const now = new Date();
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  // If we have at least 2 snapshots, compute actual deltas
+  if (snapshots && snapshots.length >= 2) {
+    const latest = snapshots[snapshots.length - 1];
+    const prev = snapshots[snapshots.length - 2];
+    const daysBetween = Math.max(1, (new Date(latest.timestamp) - new Date(prev.timestamp)) / msPerDay);
+
+    const dailyAU = Math.round((latest.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween);
+    const dailyDownloads = Math.round((latest.totalInstallerDownloads - prev.totalInstallerDownloads) / daysBetween);
+
+    return {
+      totalOpens: latestJsonCount,
+      daily: dailyAU,
+      weekly: dailyAU * 7,
+      monthly: dailyAU * 30,
+      dailyDownloads,
+      weeklyDownloads: dailyDownloads * 7,
+      releaseTag,
+      publishedAt: publishedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      source: 'snapshots',
+      snapshotDate: new Date(latest.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    };
+  }
+
+  // Fallback: estimate from lifetime average
+  const daysSincePublish = Math.max(1, (now - publishedAt) / msPerDay);
+  const daily = Math.round(latestJsonCount / daysSincePublish);
+
+  return {
+    totalOpens: latestJsonCount,
+    daily,
+    weekly: daily * 7,
+    monthly: daily * 30,
+    dailyDownloads: null,
+    weeklyDownloads: null,
+    releaseTag,
+    publishedAt: publishedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    source: 'estimate',
+    snapshotDate: null,
+  };
+}
+
+function computeTrends(snapshots) {
+  if (!snapshots || snapshots.length < 2) return null;
+
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const dailyActiveUsers = [];
+  const dailyDownloads = [];
+
+  for (let i = 1; i < snapshots.length; i++) {
+    const prev = snapshots[i - 1];
+    const curr = snapshots[i];
+    const daysBetween = Math.max(1, (new Date(curr.timestamp) - new Date(prev.timestamp)) / msPerDay);
+    const date = new Date(curr.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+    dailyActiveUsers.push({
+      date,
+      count: Math.round((curr.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween),
+    });
+    dailyDownloads.push({
+      date,
+      count: Math.round((curr.totalInstallerDownloads - prev.totalInstallerDownloads) / daysBetween),
+    });
+  }
+
+  return { dailyActiveUsers, dailyDownloads };
+}
+
+function processData(releases, snapshots) {
+  const byPlatform = { windows: 0, macArm: 0, macIntel: 0, linux: 0 };
+  let totalDownloads = 0;
+  const processed = [];
+
+  for (const release of releases) {
+    const assets = (release.assets || [])
+      .filter(a => isInstaller(a.name))
+      .map(a => {
+        const platform = classifyPlatform(a.name);
+        return { name: a.name, downloads: a.download_count, platform };
+      });
+
+    if (assets.length === 0) continue;
+
+    let releaseTotal = 0;
+    const platformCounts = { windows: 0, macArm: 0, macIntel: 0, linux: 0 };
+
+    for (const a of assets) {
+      releaseTotal += a.downloads;
+      if (platformCounts[a.platform] !== undefined) {
+        platformCounts[a.platform] += a.downloads;
+        byPlatform[a.platform] += a.downloads;
+      }
+    }
+
+    totalDownloads += releaseTotal;
+
+    processed.push({
+      tag: release.tag_name,
+      date: release.published_at ? new Date(release.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+      total: releaseTotal,
+      platforms: platformCounts,
+    });
+  }
+
+  // Chronological order for chart (oldest first)
+  const chronological = [...processed].reverse();
+
+  const activeUsers = getActiveUserEstimates(releases, snapshots);
+  const trends = computeTrends(snapshots);
+
+  return { totalDownloads, byPlatform, releases: processed, chronological, activeUsers, trends };
+}
+
+function fmt(n) {
+  return n.toLocaleString('en-US');
+}
+
+function renderSummary(data) {
+  document.getElementById('total').textContent = fmt(data.totalDownloads);
+
+  const platforms = [
+    { key: 'windows', label: 'Windows', icon: '🪟', cls: 'windows' },
+    { key: 'macArm', label: 'Mac (ARM)', icon: '🍎', cls: 'mac-arm' },
+    { key: 'macIntel', label: 'Mac (Intel)', icon: '🖥️', cls: 'mac-intel' },
+    { key: 'linux', label: 'Linux', icon: '🐧', cls: 'linux' },
+  ];
+
+  const cardsEl = document.getElementById('cards');
+  cardsEl.innerHTML = platforms.map(p => {
+    const count = data.byPlatform[p.key];
+    const pct = data.totalDownloads > 0 ? ((count / data.totalDownloads) * 100).toFixed(1) : 0;
+    return `<div class="card ${p.cls}">
+      <div class="icon">${p.icon}</div>
+      <div class="platform">${p.label}</div>
+      <div class="count">${fmt(count)}</div>
+      <div class="pct">${pct}%</div>
+    </div>`;
+  }).join('');
+}
+
+function renderActiveUsers(data) {
+  if (!data.activeUsers) return;
+  const el = document.getElementById('active-users');
+  const au = data.activeUsers;
+  el.style.display = 'block';
+
+  const isEstimate = au.source === 'estimate';
+  const title = isEstimate
+    ? `Estimated Active Users (based on ${au.releaseTag} updater checks)`
+    : `Active Users (based on ${au.releaseTag} updater checks)`;
+
+  const disclaimer = isEstimate
+    ? `Estimated from ${fmt(au.totalOpens)} latest.json downloads since ${au.publishedAt} (lifetime average)`
+    : `Based on snapshot data as of ${au.snapshotDate} — ${fmt(au.totalOpens)} total updater checks since ${au.publishedAt}`;
+
+  let downloadsDelta = '';
+  if (au.dailyDownloads !== null) {
+    downloadsDelta = `
+      <div class="au-card">
+        <div class="au-label">New Downloads / Day</div>
+        <div class="au-count" style="color: var(--mac-arm)">${fmt(au.dailyDownloads)}</div>
+      </div>
+      <div class="au-card">
+        <div class="au-label">New Downloads / Week</div>
+        <div class="au-count" style="color: var(--mac-arm)">${fmt(au.weeklyDownloads)}</div>
+      </div>
+    `;
+  }
+
+  el.innerHTML = `
+    <h2>${title}</h2>
+    <div class="au-cards">
+      <div class="au-card">
+        <div class="au-label">Daily</div>
+        <div class="au-count">${fmt(au.daily)}</div>
+      </div>
+      <div class="au-card">
+        <div class="au-label">Weekly</div>
+        <div class="au-count">${fmt(au.weekly)}</div>
+      </div>
+      <div class="au-card">
+        <div class="au-label">Monthly</div>
+        <div class="au-count">${fmt(au.monthly)}</div>
+      </div>
+      ${downloadsDelta}
+    </div>
+    <div class="au-disclaimer">${disclaimer}</div>
+  `;
+}
+
+function renderTrendChart(data) {
+  if (!data.trends) return;
+  const container = document.getElementById('trend-chart-section');
+  container.style.display = 'block';
+  const ctx = document.getElementById('trend-chart').getContext('2d');
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.trends.dailyActiveUsers.map(d => d.date),
+      datasets: [
+        {
+          label: 'Daily Active Users',
+          data: data.trends.dailyActiveUsers.map(d => d.count),
+          borderColor: '#f0883e',
+          backgroundColor: 'rgba(240, 136, 62, 0.1)',
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'Daily New Downloads',
+          data: data.trends.dailyDownloads.map(d => d.count),
+          borderColor: '#34c759',
+          backgroundColor: 'rgba(52, 199, 89, 0.1)',
+          fill: true,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'circle' },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: '#8b949e', maxRotation: 45 },
+          grid: { display: false },
+        },
+        y: {
+          ticks: {
+            color: '#8b949e',
+            callback: v => v >= 1000 ? (v / 1000).toFixed(1) + 'k' : v,
+          },
+          grid: { color: '#21262d' },
+        },
+      },
+    },
+  });
+}
+
+function renderChart(data) {
+  const ctx = document.getElementById('chart').getContext('2d');
+  const labels = data.chronological.map(r => r.tag);
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Windows',
+          data: data.chronological.map(r => r.platforms.windows),
+          backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--windows').trim(),
+        },
+        {
+          label: 'Mac (ARM)',
+          data: data.chronological.map(r => r.platforms.macArm),
+          backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--mac-arm').trim(),
+        },
+        {
+          label: 'Mac (Intel)',
+          data: data.chronological.map(r => r.platforms.macIntel),
+          backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--mac-intel').trim(),
+        },
+        {
+          label: 'Linux',
+          data: data.chronological.map(r => r.platforms.linux),
+          backgroundColor: getComputedStyle(document.documentElement).getPropertyValue('--linux').trim(),
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: '#8b949e', usePointStyle: true, pointStyle: 'circle' },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${fmt(ctx.raw)}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: '#8b949e', maxRotation: 45 },
+          grid: { display: false },
+        },
+        y: {
+          stacked: true,
+          ticks: {
+            color: '#8b949e',
+            callback: v => v >= 1000 ? (v / 1000).toFixed(0) + 'k' : v,
+          },
+          grid: { color: '#21262d' },
+        },
+      },
+    },
+  });
+}
+
+function renderTable(data) {
+  const tableEl = document.getElementById('table');
+  const header = `<thead><tr>
+    <th>Release</th><th>Date</th><th>Windows</th><th>Mac (ARM)</th><th>Mac (Intel)</th><th>Linux</th><th>Total</th>
+  </tr></thead>`;
+
+  const rows = data.releases.map(r => `<tr>
+    <td>${r.tag}</td>
+    <td>${r.date}</td>
+    <td>${fmt(r.platforms.windows)}</td>
+    <td>${fmt(r.platforms.macArm)}</td>
+    <td>${fmt(r.platforms.macIntel)}</td>
+    <td>${fmt(r.platforms.linux)}</td>
+    <td class="total-col">${fmt(r.total)}</td>
+  </tr>`).join('');
+
+  tableEl.innerHTML = header + `<tbody>${rows}</tbody>`;
+}
+
+async function main() {
+  const loadingEl = document.getElementById('loading');
+  const errorEl = document.getElementById('error');
+
+  // Check sessionStorage cache
+  const cacheKey = 'autosubs-releases';
+  let releases;
+  const cached = sessionStorage.getItem(cacheKey);
+
+  try {
+    if (cached) {
+      releases = JSON.parse(cached);
+    } else {
+      const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`);
+      if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+      releases = await res.json();
+      sessionStorage.setItem(cacheKey, JSON.stringify(releases));
+    }
+
+    // Fetch snapshot history
+    let snapshots = [];
+    try {
+      const snapRes = await fetch('data/snapshots.json');
+      if (snapRes.ok) snapshots = await snapRes.json();
+    } catch (e) { /* snapshots not available yet */ }
+
+    const data = processData(releases, snapshots);
+
+    loadingEl.style.display = 'none';
+    renderSummary(data);
+    renderActiveUsers(data);
+    renderTrendChart(data);
+    renderChart(data);
+    renderTable(data);
+
+  } catch (err) {
+    loadingEl.style.display = 'none';
+    errorEl.style.display = 'block';
+    errorEl.innerHTML = `<p>Failed to load data: ${err.message}</p>
+      <button onclick="sessionStorage.removeItem('${cacheKey}'); location.reload()">Retry</button>`;
+  }
+}
+
+main();
+</script>
+
+</body>
+</html>
