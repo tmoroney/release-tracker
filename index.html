@@ -90,7 +90,58 @@
     .au-card .au-label { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.25rem; }
     .au-card .au-count { font-size: 2rem; font-weight: 700; color: #f0883e; }
     .au-card .au-note { color: var(--text-muted); font-size: 0.75rem; margin-top: 0.15rem; }
-    .active-users .au-disclaimer { color: var(--text-muted); font-size: 0.75rem; margin-top: 1rem; font-style: italic; }
+    .active-users .au-disclaimer {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-top: 1rem;
+      font-style: italic;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .info-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 1px solid var(--text-muted);
+      font-size: 0.65rem;
+      font-style: normal;
+      cursor: help;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .info-icon .tooltip {
+      display: none;
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #2d333b;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      font-style: normal;
+      color: var(--text);
+      width: 320px;
+      text-align: left;
+      line-height: 1.5;
+      z-index: 10;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .info-icon .tooltip::after {
+      content: '';
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      transform: translateX(-50%);
+      border: 6px solid transparent;
+      border-top-color: #2d333b;
+    }
+    .info-icon:hover .tooltip { display: block; }
 
     .section {
       background: var(--surface);
@@ -380,12 +431,16 @@ function renderActiveUsers(data) {
 
   const isEstimate = au.source === 'estimate';
   const title = isEstimate
-    ? `Estimated Active Users (based on ${au.releaseTag} updater checks)`
-    : `Active Users (based on ${au.releaseTag} updater checks)`;
+    ? `Estimated Active Users`
+    : `Active Users`;
 
-  const disclaimer = isEstimate
-    ? `Estimated from ${fmt(au.totalOpens)} latest.json downloads since ${au.publishedAt} (lifetime average)`
+  const disclaimerText = isEstimate
+    ? `Estimated from ${fmt(au.totalOpens)} latest.json downloads since ${au.publishedAt}`
     : `Based on snapshot data as of ${au.snapshotDate} — ${fmt(au.totalOpens)} total updater checks since ${au.publishedAt}`;
+
+  const tooltipText = `AutoSubs uses Tauri's built-in updater, which downloads a "latest.json" file from GitHub every time the app is opened to check for updates. The download count of this file serves as a proxy for how many times the app has been opened. ${isEstimate ? 'These figures are lifetime averages (total opens \u00F7 days since release). They will become more accurate once daily snapshots are collected.' : 'These figures are calculated from the difference in download counts between daily snapshots.'}`;
+
+  const disclaimer = `${disclaimerText} <span class="info-icon">i<span class="tooltip">${tooltipText}</span></span>`;
 
   let downloadsDelta = '';
   if (au.dailyDownloads !== null) {
