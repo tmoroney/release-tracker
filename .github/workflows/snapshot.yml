@@ -24,12 +24,13 @@ jobs:
           fi
 
           # Fetch release data from GitHub API
-          RELEASES=$(curl -s "https://api.github.com/repos/tmoroney/auto-subs/releases?per_page=100")
+          RELEASES_FILE=$(mktemp)
+          curl -s "https://api.github.com/repos/tmoroney/auto-subs/releases?per_page=100" > "$RELEASES_FILE"
 
           # Use node to process the data and append snapshot
           node -e "
             const fs = require('fs');
-            const releases = JSON.parse(process.argv[1]);
+            const releases = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
             const snapshots = JSON.parse(fs.readFileSync('$SNAPSHOT_FILE', 'utf8'));
 
             const EXTENSIONS = ['.pkg', '.deb', '.exe'];
@@ -111,7 +112,9 @@ jobs:
 
             console.log('Snapshot recorded:', JSON.stringify(snapshot, null, 2));
             console.log('Badges generated:', Object.keys(badges).join(', '));
-          " "$RELEASES"
+          " "$RELEASES_FILE"
+
+          rm -f "$RELEASES_FILE"
 
       - name: Commit and push
         run: |
