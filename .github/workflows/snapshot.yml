@@ -45,13 +45,11 @@ jobs:
             for (const release of releases) {
               if (!release.assets) continue;
 
-              // Find latest.json from the newest release that has one
-              if (!latestJsonRelease) {
-                const lj = release.assets.find(a => a.name === 'latest.json');
-                if (lj) {
-                  latestJsonDownloads = lj.download_count;
-                  latestJsonRelease = release.tag_name;
-                }
+              // Sum latest.json across all releases so the count never resets when a new release is published
+              const lj = release.assets.find(a => a.name === 'latest.json');
+              if (lj) {
+                latestJsonDownloads += lj.download_count;
+                if (!latestJsonRelease) latestJsonRelease = release.tag_name;
               }
 
               let releaseTotal = 0;
@@ -88,10 +86,12 @@ jobs:
               const daysBetween = Math.max(1, (new Date(snapshot.timestamp) - new Date(prev.timestamp)) / msPerDay);
               dailyAU = Math.round((snapshot.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween);
             } else {
-              // Fallback: fetch publish date from releases
-              const latestRelease = releases.find(r => r.assets && r.assets.some(a => a.name === 'latest.json'));
-              if (latestRelease) {
-                const daysSincePublish = Math.max(1, (Date.now() - new Date(latestRelease.published_at).getTime()) / msPerDay);
+              // Fallback: use oldest release with latest.json as baseline so a brand-new release
+              // doesn't collapse daysSincePublish to 1 and inflate the estimate.
+              const releasesWithLj = releases.filter(r => r.assets && r.assets.some(a => a.name === 'latest.json'));
+              if (releasesWithLj.length > 0) {
+                const oldestRelease = releasesWithLj[releasesWithLj.length - 1];
+                const daysSincePublish = Math.max(1, (Date.now() - new Date(oldestRelease.published_at).getTime()) / msPerDay);
                 dailyAU = Math.round(latestJsonDownloads / daysSincePublish);
               } else {
                 dailyAU = 0;
