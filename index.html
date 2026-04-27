@@ -265,18 +265,23 @@ function classifyPlatform(name) {
 }
 
 function getActiveUserEstimates(releases, snapshots) {
-  // Find the latest release (first in the array — API returns newest first)
+  // API returns releases newest-first; track both newest (for display) and oldest (for estimation baseline)
   let latestJsonCount = 0;
   let releaseTag = null;
   let publishedAt = null;
+  let oldestPublishedAt = null;
 
   for (const release of releases) {
     const latestJson = (release.assets || []).find(a => a.name === 'latest.json');
-    if (!latestJson || !release.published_at) continue;
-    latestJsonCount = latestJson.download_count;
-    releaseTag = release.tag_name;
-    publishedAt = new Date(release.published_at);
-    break;
+    if (!latestJson) continue;
+    latestJsonCount += latestJson.download_count;
+    if (!releaseTag && release.published_at) {
+      releaseTag = release.tag_name;
+      publishedAt = new Date(release.published_at);
+    }
+    if (release.published_at) {
+      oldestPublishedAt = new Date(release.published_at); // last iteration = oldest release
+    }
   }
 
   if (!releaseTag) return null;
@@ -307,8 +312,10 @@ function getActiveUserEstimates(releases, snapshots) {
     };
   }
 
-  // Fallback: estimate from lifetime average
-  const daysSincePublish = Math.max(1, (now - publishedAt) / msPerDay);
+  // Fallback: estimate from lifetime average using oldest release as the baseline date,
+  // so adding a brand-new release doesn't collapse daysSincePublish to 1.
+  const baseDate = oldestPublishedAt || publishedAt;
+  const daysSincePublish = Math.max(1, (now - baseDate) / msPerDay);
   const daily = Math.round(latestJsonCount / daysSincePublish);
 
   return {
@@ -338,9 +345,10 @@ function computeTrends(snapshots) {
     const daysBetween = Math.max(1, (new Date(curr.timestamp) - new Date(prev.timestamp)) / msPerDay);
     const date = new Date(curr.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
+    const auDelta = Math.round((curr.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween);
     dailyActiveUsers.push({
       date,
-      count: Math.round((curr.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween),
+      count: auDelta < 0 ? null : auDelta,
     });
     dailyDownloads.push({
       date,
