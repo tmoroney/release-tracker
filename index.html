@@ -298,18 +298,23 @@ function getActiveUserEstimates(releases, snapshots) {
     const dailyAU = Math.round((latest.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween);
     const dailyDownloads = Math.round((latest.totalInstallerDownloads - prev.totalInstallerDownloads) / daysBetween);
 
-    return {
-      totalOpens: latestJsonCount,
-      daily: dailyAU,
-      weekly: dailyAU * 7,
-      monthly: dailyAU * 30,
-      dailyDownloads,
-      weeklyDownloads: dailyDownloads * 7,
-      releaseTag,
-      publishedAt: publishedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      source: 'snapshots',
-      snapshotDate: new Date(latest.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-    };
+    // If the snapshot delta is negative (e.g. caused by a release transition before the
+    // cumulative-sum fix was deployed), fall through to the estimation fallback rather
+    // than displaying a nonsensical negative number.
+    if (dailyAU >= 0) {
+      return {
+        totalOpens: latestJsonCount,
+        daily: dailyAU,
+        weekly: dailyAU * 7,
+        monthly: dailyAU * 30,
+        dailyDownloads,
+        weeklyDownloads: dailyDownloads * 7,
+        releaseTag,
+        publishedAt: publishedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        source: 'snapshots',
+        snapshotDate: new Date(latest.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      };
+    }
   }
 
   // Fallback: estimate from lifetime average using oldest release as the baseline date,
