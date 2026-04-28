@@ -34,6 +34,16 @@ jobs:
             const releases = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
             const snapshots = JSON.parse(fs.readFileSync('$SNAPSHOT_FILE', 'utf8'));
 
+            // Skip if a snapshot for today already exists (prevents duplicate same-day runs)
+            const todayUTC = new Date().toISOString().slice(0, 10);
+            if (snapshots.length > 0) {
+              const lastDate = new Date(snapshots[snapshots.length - 1].timestamp).toISOString().slice(0, 10);
+              if (lastDate === todayUTC) {
+                console.log('Snapshot for ' + todayUTC + ' already exists, skipping duplicate run.');
+                process.exit(0);
+              }
+            }
+
             const EXTENSIONS = ['.pkg', '.deb', '.exe'];
             const isInstaller = name => EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext));
 
@@ -79,6 +89,19 @@ jobs:
             const fmtNum = n => n >= 1000000 ? (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(n);
             const msPerDay = 86400000;
 
+            // Returns the actual total of `field` over the last `windowDays` days of snapshots.
+            function windowedTotal(snaps, field, windowDays) {
+              if (snaps.length < 2) return null;
+              const latest = snaps[snaps.length - 1];
+              const cutoff = new Date(latest.timestamp).getTime() - windowDays * msPerDay;
+              let baseline = null;
+              for (let i = snaps.length - 2; i >= 0; i--) {
+                if (new Date(snaps[i].timestamp).getTime() >= cutoff) baseline = snaps[i];
+                else break;
+              }
+              return baseline ? Math.max(0, latest[field] - baseline[field]) : null;
+            }
+
             // Compute active user estimates
             let dailyAU, weeklyAU, monthlyAU;
             if (snapshots.length >= 2) {
@@ -97,17 +120,11 @@ jobs:
                 dailyAU = 0;
               }
             }
-            weeklyAU = dailyAU * 7;
-            monthlyAU = dailyAU * 30;
+            weeklyAU = windowedTotal(snapshots, 'latestJsonDownloads', 7) ?? dailyAU * 7;
+            monthlyAU = windowedTotal(snapshots, 'latestJsonDownloads', 30) ?? dailyAU * 30;
 
-            // Compute new-installer-downloads delta
-            let weeklyDownloads = 0;
-            if (snapshots.length >= 2) {
-              const prev = snapshots[snapshots.length - 2];
-              const daysBetween = Math.max(1, (new Date(snapshot.timestamp) - new Date(prev.timestamp)) / msPerDay);
-              const dailyDownloads = Math.round((snapshot.totalInstallerDownloads - prev.totalInstallerDownloads) / daysBetween);
-              weeklyDownloads = dailyDownloads * 7;
-            }
+            // Compute new-installer-downloads over the last 7 days
+            const weeklyDownloads = windowedTotal(snapshots, 'totalInstallerDownloads', 7) ?? 0;
 
             const badges = {
               'badge-downloads': { schemaVersion: 1, label: 'downloads', message: fmtNum(totalInstallerDownloads), color: '0078d4' },

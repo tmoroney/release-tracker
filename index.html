@@ -264,6 +264,18 @@ function classifyPlatform(name) {
   return 'unknown';
 }
 
+function windowedTotal(snapshots, field, windowDays) {
+  if (snapshots.length < 2) return null;
+  const latest = snapshots[snapshots.length - 1];
+  const cutoff = new Date(latest.timestamp).getTime() - windowDays * 86400000;
+  let baseline = null;
+  for (let i = snapshots.length - 2; i >= 0; i--) {
+    if (new Date(snapshots[i].timestamp).getTime() >= cutoff) baseline = snapshots[i];
+    else break;
+  }
+  return baseline ? Math.max(0, latest[field] - baseline[field]) : null;
+}
+
 function getActiveUserEstimates(releases, snapshots) {
   // API returns releases newest-first; track both newest (for display) and oldest (for estimation baseline)
   let latestJsonCount = 0;
@@ -305,10 +317,10 @@ function getActiveUserEstimates(releases, snapshots) {
       return {
         totalOpens: latestJsonCount,
         daily: dailyAU,
-        weekly: dailyAU * 7,
-        monthly: dailyAU * 30,
+        weekly: windowedTotal(snapshots, 'latestJsonDownloads', 7) ?? dailyAU * 7,
+        monthly: windowedTotal(snapshots, 'latestJsonDownloads', 30) ?? dailyAU * 30,
         dailyDownloads,
-        weeklyDownloads: dailyDownloads * 7,
+        weeklyDownloads: windowedTotal(snapshots, 'totalInstallerDownloads', 7) ?? dailyDownloads * 7,
         releaseTag,
         publishedAt: publishedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
         source: 'snapshots',
@@ -451,7 +463,7 @@ function renderActiveUsers(data) {
     ? `Estimated from ${fmt(au.totalOpens)} latest.json downloads since ${au.publishedAt}`
     : `Based on snapshot data as of ${au.snapshotDate} — ${fmt(au.totalOpens)} total updater checks since ${au.publishedAt}`;
 
-  const tooltipText = `AutoSubs uses Tauri's built-in updater, which downloads a "latest.json" file from GitHub every time the app is opened to check for updates. The download count of this file serves as a proxy for how many times the app has been opened. ${isEstimate ? 'These figures are lifetime averages (total opens \u00F7 days since release). They will become more accurate once daily snapshots are collected.' : 'These figures are calculated from the difference in download counts between daily snapshots.'}`;
+  const tooltipText = `AutoSubs uses Tauri's built-in updater, which downloads a "latest.json" file from GitHub every time the app is opened to check for updates. The download count of this file serves as a proxy for how many times the app has been opened. ${isEstimate ? 'These figures are lifetime averages (total opens \u00F7 days since release). They will become more accurate once daily snapshots are collected.' : 'Daily figures reflect the most recent 24-hour snapshot pair. Weekly and monthly figures are actual totals summed from the past 7 and 30 days of snapshot history, not extrapolations from a single day.'}`;
 
   const disclaimer = `${disclaimerText} <span class="info-icon">i<span class="tooltip">${tooltipText}</span></span>`;
 
