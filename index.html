@@ -444,8 +444,8 @@ function renderActiveUsers(data) {
 
   const isEstimate = au.source === 'estimate';
   const title = isEstimate
-    ? `Estimated Active Users`
-    : `Active Users`;
+    ? `Estimated App Opens`
+    : `App Opens`;
 
   const disclaimerText = isEstimate
     ? `Estimated from ${fmt(au.totalOpens)} latest.json downloads since ${au.publishedAt}`

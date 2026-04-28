@@ -100,11 +100,21 @@ jobs:
             weeklyAU = dailyAU * 7;
             monthlyAU = dailyAU * 30;
 
+            // Compute new-installer-downloads delta
+            let weeklyDownloads = 0;
+            if (snapshots.length >= 2) {
+              const prev = snapshots[snapshots.length - 2];
+              const daysBetween = Math.max(1, (new Date(snapshot.timestamp) - new Date(prev.timestamp)) / msPerDay);
+              const dailyDownloads = Math.round((snapshot.totalInstallerDownloads - prev.totalInstallerDownloads) / daysBetween);
+              weeklyDownloads = dailyDownloads * 7;
+            }
+
             const badges = {
               'badge-downloads': { schemaVersion: 1, label: 'downloads', message: fmtNum(totalInstallerDownloads), color: '0078d4' },
-              'badge-weekly-users': { schemaVersion: 1, label: 'weekly active users', message: fmtNum(weeklyAU), color: 'f0883e' },
-              'badge-daily-users': { schemaVersion: 1, label: 'daily active users', message: fmtNum(dailyAU), color: 'f0883e' },
-              'badge-monthly-users': { schemaVersion: 1, label: 'monthly active users', message: fmtNum(monthlyAU), color: 'f0883e' },
+              'badge-weekly-users': { schemaVersion: 1, label: 'weekly app opens', message: fmtNum(weeklyAU), color: 'f0883e' },
+              'badge-daily-users': { schemaVersion: 1, label: 'daily app opens', message: fmtNum(dailyAU), color: 'f0883e' },
+              'badge-monthly-users': { schemaVersion: 1, label: 'monthly app opens', message: fmtNum(monthlyAU), color: 'f0883e' },
+              'badge-weekly-downloads': { schemaVersion: 1, label: 'new downloads / week', message: weeklyDownloads > 0 ? fmtNum(weeklyDownloads) : 'N/A', color: '34c759' },
             };
 
             for (const [name, badge] of Object.entries(badges)) {
