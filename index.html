@@ -247,7 +247,7 @@
 
 <script>
 const REPO = 'tmoroney/auto-subs';
-const EXTENSIONS = ['.pkg', '.deb', '.exe'];
+const EXTENSIONS = ['.pkg', '.deb', '.exe', '.tar.gz'];
 
 function isInstaller(name) {
   return EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext));
@@ -260,6 +260,12 @@ function classifyPlatform(name) {
   if (n.endsWith('.pkg')) {
     if (n.includes('intel') || n.includes('x86_64') || n.includes('x86-64')) return 'macIntel';
     return 'macArm';
+  }
+  if (n.endsWith('.tar.gz')) {
+    if (n.includes('apple-darwin') || n.includes('darwin')) {
+      if (n.includes('x64') || n.includes('x86_64') || n.includes('x86-64') || n.includes('intel')) return 'macIntel';
+      return 'macArm';
+    }
   }
   return 'unknown';
 }
