@@ -44,8 +44,15 @@ jobs:
               }
             }
 
-            const EXTENSIONS = ['.pkg', '.deb', '.exe'];
-            const isInstaller = name => EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext));
+            const INSTALLER_EXTENSIONS = ['.pkg', '.deb', '.exe'];
+            const isMacTarball = name => {
+              const n = name.toLowerCase();
+              return n.endsWith('.tar.gz') && (n.includes('apple-darwin') || n.includes('darwin') || n.includes('macos'));
+            };
+            const isInstaller = name => {
+              const n = name.toLowerCase();
+              return INSTALLER_EXTENSIONS.some(ext => n.endsWith(ext)) || isMacTarball(n);
+            };
 
             let totalInstallerDownloads = 0;
             let latestJsonDownloads = 0;
@@ -94,20 +101,37 @@ jobs:
               if (snaps.length < 2) return null;
               const latest = snaps[snaps.length - 1];
               const cutoff = new Date(latest.timestamp).getTime() - windowDays * msPerDay;
-              let baseline = null;
-              for (let i = snaps.length - 2; i >= 0; i--) {
-                if (new Date(snaps[i].timestamp).getTime() >= cutoff) baseline = snaps[i];
-                else break;
+              let total = 0;
+              let hasDeltas = false;
+
+              for (let i = 1; i < snaps.length; i++) {
+                const prev = snaps[i - 1];
+                const curr = snaps[i];
+                if (new Date(curr.timestamp).getTime() < cutoff) continue;
+
+                const delta = curr[field] - prev[field];
+                if (delta >= 0) {
+                  total += delta;
+                  hasDeltas = true;
+                }
               }
-              return baseline ? Math.max(0, latest[field] - baseline[field]) : null;
+
+              return hasDeltas ? total : null;
+            }
+
+            function dailyRateFromLatestPair(snaps, field) {
+              if (snaps.length < 2) return null;
+              const latest = snaps[snaps.length - 1];
+              const prev = snaps[snaps.length - 2];
+              const daysBetween = (new Date(latest.timestamp) - new Date(prev.timestamp)) / msPerDay;
+              if (daysBetween <= 0) return null;
+              return Math.round((latest[field] - prev[field]) / daysBetween);
             }
 
             // Compute active user estimates
             let dailyAU, weeklyAU, monthlyAU;
             if (snapshots.length >= 2) {
-              const prev = snapshots[snapshots.length - 2];
-              const daysBetween = Math.max(1, (new Date(snapshot.timestamp) - new Date(prev.timestamp)) / msPerDay);
-              dailyAU = Math.round((snapshot.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween);
+              dailyAU = dailyRateFromLatestPair(snapshots, 'latestJsonDownloads');
             } else {
               // Fallback: use oldest release with latest.json as baseline so a brand-new release
               // doesn't collapse daysSincePublish to 1 and inflate the estimate.
@@ -120,6 +144,7 @@ jobs:
                 dailyAU = 0;
               }
             }
+            dailyAU = Math.max(0, dailyAU ?? 0);
             weeklyAU = windowedTotal(snapshots, 'latestJsonDownloads', 7) ?? dailyAU * 7;
             monthlyAU = windowedTotal(snapshots, 'latestJsonDownloads', 30) ?? dailyAU * 30;
 

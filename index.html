@@ -216,6 +216,7 @@
 <div class="cards" id="cards"></div>
 
 <div class="active-users" id="active-users" style="display:none"></div>
+<div class="active-users" id="download-velocity" style="display:none"></div>
 
 <div class="section" id="trend-chart-section" style="display:none">
   <h2>Daily Trends</h2>
@@ -247,10 +248,16 @@
 
 <script>
 const REPO = 'tmoroney/auto-subs';
-const EXTENSIONS = ['.pkg', '.deb', '.exe', '.tar.gz'];
+const INSTALLER_EXTENSIONS = ['.pkg', '.deb', '.exe'];
 
 function isInstaller(name) {
-  return EXTENSIONS.some(ext => name.toLowerCase().endsWith(ext));
+  const n = name.toLowerCase();
+  return INSTALLER_EXTENSIONS.some(ext => n.endsWith(ext)) || isMacTarball(n);
+}
+
+function isMacTarball(name) {
+  const n = name.toLowerCase();
+  return n.endsWith('.tar.gz') && (n.includes('apple-darwin') || n.includes('darwin') || n.includes('macos'));
 }
 
 function classifyPlatform(name) {
@@ -261,11 +268,9 @@ function classifyPlatform(name) {
     if (n.includes('intel') || n.includes('x86_64') || n.includes('x86-64')) return 'macIntel';
     return 'macArm';
   }
-  if (n.endsWith('.tar.gz')) {
-    if (n.includes('apple-darwin') || n.includes('darwin')) {
-      if (n.includes('x64') || n.includes('x86_64') || n.includes('x86-64') || n.includes('intel')) return 'macIntel';
-      return 'macArm';
-    }
+  if (isMacTarball(n)) {
+    if (n.includes('x64') || n.includes('x86_64') || n.includes('x86-64') || n.includes('intel')) return 'macIntel';
+    return 'macArm';
   }
   return 'unknown';
 }
@@ -274,16 +279,35 @@ function windowedTotal(snapshots, field, windowDays) {
   if (snapshots.length < 2) return null;
   const latest = snapshots[snapshots.length - 1];
   const cutoff = new Date(latest.timestamp).getTime() - windowDays * 86400000;
-  let baseline = null;
-  for (let i = snapshots.length - 2; i >= 0; i--) {
-    if (new Date(snapshots[i].timestamp).getTime() >= cutoff) baseline = snapshots[i];
-    else break;
+  let total = 0;
+  let hasDeltas = false;
+
+  for (let i = 1; i < snapshots.length; i++) {
+    const prev = snapshots[i - 1];
+    const curr = snapshots[i];
+    if (new Date(curr.timestamp).getTime() < cutoff) continue;
+
+    const delta = curr[field] - prev[field];
+    if (delta >= 0) {
+      total += delta;
+      hasDeltas = true;
+    }
   }
-  return baseline ? Math.max(0, latest[field] - baseline[field]) : null;
+
+  return hasDeltas ? total : null;
+}
+
+function dailyRateFromLatestPair(snapshots, field) {
+  if (snapshots.length < 2) return null;
+  const latest = snapshots[snapshots.length - 1];
+  const prev = snapshots[snapshots.length - 2];
+  const daysBetween = (new Date(latest.timestamp) - new Date(prev.timestamp)) / 86400000;
+  if (daysBetween <= 0) return null;
+  return Math.round((latest[field] - prev[field]) / daysBetween);
 }
 
 function getActiveUserEstimates(releases, snapshots) {
-  // API returns releases newest-first; track both newest (for display) and oldest (for estimation baseline)
+  // API returns releases newest-first; track newest and oldest latest.json releases separately.
   let latestJsonCount = 0;
   let releaseTag = null;
   let publishedAt = null;
@@ -306,29 +330,29 @@ function getActiveUserEstimates(releases, snapshots) {
 
   const now = new Date();
   const msPerDay = 1000 * 60 * 60 * 24;
+  const activeSince = (oldestPublishedAt || publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   // If we have at least 2 snapshots, compute actual deltas
   if (snapshots && snapshots.length >= 2) {
     const latest = snapshots[snapshots.length - 1];
-    const prev = snapshots[snapshots.length - 2];
-    const daysBetween = Math.max(1, (new Date(latest.timestamp) - new Date(prev.timestamp)) / msPerDay);
 
-    const dailyAU = Math.round((latest.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween);
-    const dailyDownloads = Math.round((latest.totalInstallerDownloads - prev.totalInstallerDownloads) / daysBetween);
+    const dailyAU = dailyRateFromLatestPair(snapshots, 'latestJsonDownloads');
+    const dailyDownloads = dailyRateFromLatestPair(snapshots, 'totalInstallerDownloads');
 
     // If the snapshot delta is negative (e.g. caused by a release transition before the
     // cumulative-sum fix was deployed), fall through to the estimation fallback rather
     // than displaying a nonsensical negative number.
-    if (dailyAU >= 0) {
+    if (dailyAU !== null && dailyAU >= 0) {
       return {
-        totalOpens: latestJsonCount,
+        totalOpens: latest.latestJsonDownloads ?? latestJsonCount,
         daily: dailyAU,
         weekly: windowedTotal(snapshots, 'latestJsonDownloads', 7) ?? dailyAU * 7,
         monthly: windowedTotal(snapshots, 'latestJsonDownloads', 30) ?? dailyAU * 30,
-        dailyDownloads,
-        weeklyDownloads: windowedTotal(snapshots, 'totalInstallerDownloads', 7) ?? dailyDownloads * 7,
+        dailyDownloads: dailyDownloads !== null ? Math.max(0, dailyDownloads) : null,
+        weeklyDownloads: windowedTotal(snapshots, 'totalInstallerDownloads', 7) ?? (dailyDownloads !== null ? Math.max(0, dailyDownloads) * 7 : null),
         releaseTag,
         publishedAt: publishedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        activeSince,
         source: 'snapshots',
         snapshotDate: new Date(latest.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       };
@@ -350,6 +374,7 @@ function getActiveUserEstimates(releases, snapshots) {
     weeklyDownloads: null,
     releaseTag,
     publishedAt: publishedAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    activeSince,
     source: 'estimate',
     snapshotDate: null,
   };
@@ -365,8 +390,9 @@ function computeTrends(snapshots) {
   for (let i = 1; i < snapshots.length; i++) {
     const prev = snapshots[i - 1];
     const curr = snapshots[i];
-    const daysBetween = Math.max(1, (new Date(curr.timestamp) - new Date(prev.timestamp)) / msPerDay);
+    const daysBetween = (new Date(curr.timestamp) - new Date(prev.timestamp)) / msPerDay;
     const date = new Date(curr.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    if (daysBetween <= 0) continue;
 
     const auDelta = Math.round((curr.latestJsonDownloads - prev.latestJsonDownloads) / daysBetween);
     dailyActiveUsers.push({
@@ -466,26 +492,12 @@ function renderActiveUsers(data) {
     : `App Opens`;
 
   const disclaimerText = isEstimate
-    ? `Estimated from ${fmt(au.totalOpens)} latest.json downloads since ${au.publishedAt}`
-    : `Based on snapshot data as of ${au.snapshotDate} — ${fmt(au.totalOpens)} total updater checks since ${au.publishedAt}`;
+    ? `Estimated from ${fmt(au.totalOpens)} cumulative updater checks across tracked releases since ${au.activeSince}`
+    : `Based on snapshot data as of ${au.snapshotDate} — ${fmt(au.totalOpens)} cumulative updater checks across tracked releases`;
 
-  const tooltipText = `AutoSubs uses Tauri's built-in updater, which downloads a "latest.json" file from GitHub every time the app is opened to check for updates. The download count of this file serves as a proxy for how many times the app has been opened. ${isEstimate ? 'These figures are lifetime averages (total opens \u00F7 days since release). They will become more accurate once daily snapshots are collected.' : 'Daily figures reflect the most recent 24-hour snapshot pair. Weekly and monthly figures are actual totals summed from the past 7 and 30 days of snapshot history, not extrapolations from a single day.'}`;
+  const tooltipText = `AutoSubs uses Tauri's built-in updater, which downloads a "latest.json" file from GitHub every time the app is opened to check for updates. The download count of this file serves as a proxy for how many times the app has been opened. The cumulative updater-check total sums latest.json downloads across tracked releases. ${isEstimate ? 'These figures are lifetime averages (total opens \u00F7 days since the first tracked updater release). They will become more accurate once daily snapshots are collected.' : 'Daily figures are normalized to a 24-hour rate from the most recent snapshot pair. Weekly and monthly figures are actual totals summed from snapshot deltas recorded in the past 7 and 30 days, not extrapolations from a single day.'}`;
 
   const disclaimer = `${disclaimerText} <span class="info-icon">i<span class="tooltip">${tooltipText}</span></span>`;
-
-  let downloadsDelta = '';
-  if (au.dailyDownloads !== null) {
-    downloadsDelta = `
-      <div class="au-card">
-        <div class="au-label">New Downloads / Day</div>
-        <div class="au-count" style="color: var(--mac-arm)">${fmt(au.dailyDownloads)}</div>
-      </div>
-      <div class="au-card">
-        <div class="au-label">New Downloads / Week</div>
-        <div class="au-count" style="color: var(--mac-arm)">${fmt(au.weeklyDownloads)}</div>
-      </div>
-    `;
-  }
 
   el.innerHTML = `
     <h2>${title}</h2>
@@ -502,7 +514,32 @@ function renderActiveUsers(data) {
         <div class="au-label">Monthly</div>
         <div class="au-count">${fmt(au.monthly)}</div>
       </div>
-      ${downloadsDelta}
+    </div>
+    <div class="au-disclaimer">${disclaimer}</div>
+  `;
+}
+
+function renderDownloadVelocity(data) {
+  if (!data.activeUsers || data.activeUsers.dailyDownloads === null) return;
+  const el = document.getElementById('download-velocity');
+  const au = data.activeUsers;
+  el.style.display = 'block';
+
+  const disclaimerText = `Based on snapshot data as of ${au.snapshotDate}`;
+  const tooltipText = `Daily new downloads are normalized to a 24-hour rate from the most recent snapshot pair. Weekly new downloads are the actual total summed from installer and updater-archive download deltas recorded in the past 7 days.`;
+  const disclaimer = `${disclaimerText} <span class="info-icon">i<span class="tooltip">${tooltipText}</span></span>`;
+
+  el.innerHTML = `
+    <h2>New Downloads</h2>
+    <div class="au-cards">
+      <div class="au-card">
+        <div class="au-label">Daily</div>
+        <div class="au-count" style="color: var(--mac-arm)">${fmt(au.dailyDownloads)}</div>
+      </div>
+      <div class="au-card">
+        <div class="au-label">Weekly</div>
+        <div class="au-count" style="color: var(--mac-arm)">${fmt(au.weeklyDownloads)}</div>
+      </div>
     </div>
     <div class="au-disclaimer">${disclaimer}</div>
   `;
@@ -653,19 +690,25 @@ async function main() {
   const loadingEl = document.getElementById('loading');
   const errorEl = document.getElementById('error');
 
-  // Check sessionStorage cache
-  const cacheKey = 'autosubs-releases';
+  // Cache briefly to avoid hammering the GitHub API without making reloads look stale.
+  const cacheKey = 'autosubs-releases-v2';
+  const cacheTtlMs = 5 * 60 * 1000;
   let releases;
   const cached = sessionStorage.getItem(cacheKey);
 
   try {
     if (cached) {
-      releases = JSON.parse(cached);
-    } else {
+      const parsed = JSON.parse(cached);
+      if (Date.now() - parsed.timestamp < cacheTtlMs) {
+        releases = parsed.releases;
+      }
+    }
+
+    if (!releases) {
       const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=100`);
       if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
       releases = await res.json();
-      sessionStorage.setItem(cacheKey, JSON.stringify(releases));
+      sessionStorage.setItem(cacheKey, JSON.stringify({ timestamp: Date.now(), releases }));
     }
 
     // Fetch snapshot history
@@ -680,6 +723,7 @@ async function main() {
     loadingEl.style.display = 'none';
     renderSummary(data);
     renderActiveUsers(data);
+    renderDownloadVelocity(data);
     renderTrendChart(data);
     renderChart(data);
     renderTable(data);
