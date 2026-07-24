@@ -26,12 +26,17 @@ jobs:
 
           # Fetch release data from GitHub API
           RELEASES_FILE=$(mktemp)
-          curl -s "https://api.github.com/repos/tmoroney/auto-subs/releases?per_page=100" > "$RELEASES_FILE"
+          curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/tmoroney/auto-subs/releases?per_page=100" > "$RELEASES_FILE"
 
           # Use node to process the data and append snapshot
           node -e "
             const fs = require('fs');
-            const releases = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+            const rawReleases = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+            if (!Array.isArray(rawReleases)) {
+              console.error('GitHub API did not return a release array:', JSON.stringify(rawReleases, null, 2));
+              process.exit(1);
+            }
+            const releases = rawReleases;
             const snapshots = JSON.parse(fs.readFileSync('$SNAPSHOT_FILE', 'utf8'));
 
             // Skip if a snapshot for today already exists (prevents duplicate same-day runs)
@@ -96,7 +101,7 @@ jobs:
             const fmtNum = n => n >= 1000000 ? (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(n);
             const msPerDay = 86400000;
 
-            // Returns the actual total of `field` over the last `windowDays` days of snapshots.
+            // Returns the actual total of 'field' over the last 'windowDays' days of snapshots.
             function windowedTotal(snaps, field, windowDays) {
               if (snaps.length < 2) return null;
               const latest = snaps[snaps.length - 1];
